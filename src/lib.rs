@@ -23,11 +23,11 @@
 //!
 //! ```
 //! use mole_p256::backend::Point;
-//! use mole_p256::backend::rustcrypto::RustCrypto;
+//! use mole_p256::DefaultBackend;
 //! use mole_p256::hash::BackendHashExt;
 //!
-//! let scalar = RustCrypto::hash_to_scalar(b"EC-ACTv1-P256-SHA256", &[b"example"]);
-//! let point = RustCrypto::hash_to_group(b"EC-IHATv1-P256-SHA256", &[b"example"]).unwrap();
+//! let scalar = DefaultBackend::hash_to_scalar(b"EC-ACTv1-P256-SHA256", &[b"example"]);
+//! let point = DefaultBackend::hash_to_group(b"EC-IHATv1-P256-SHA256", &[b"example"]).unwrap();
 //! assert!(point.to_bytes().is_some());
 //! let _ = scalar;
 //! ```
