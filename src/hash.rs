@@ -86,11 +86,17 @@ impl<H: Sha256> XmdPrefix<H> {
 
     /// `expand_message_xmd(prefix || suffix, dst, len(out))`.
     ///
-    /// `dst` is at most 255 bytes and `out` at most `255 * 32` bytes; the
-    /// tags of this crate are short and every output is 32 or 48 bytes.
+    /// The concatenated `dst` must be at most 255 bytes and `out` at most
+    /// `255 * 32` bytes, as required by RFC 9380.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either length exceeds its RFC 9380 limit. This rejects
+    /// unsupported inputs even in release builds rather than truncating
+    /// the encoded DST length or wrapping the one-byte block counter.
     pub fn expand_into(&self, suffix: &[&[u8]], dst: &[&[u8]], out: &mut [u8]) {
         let dst_len = dst.iter().map(|part| part.len()).sum::<usize>();
-        debug_assert!(dst_len <= 255 && out.len() <= 255 * 32);
+        assert!(dst_len <= 255 && out.len() <= 255 * 32, "XMD length exceeds RFC 9380 limit");
         let dst_prime_tail = [dst_len as u8];
         let absorb_dst = |hasher: &mut H| {
             for part in dst {
