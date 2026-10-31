@@ -33,6 +33,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.87.0
       - run: cargo check --lib
 
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
   boringssl:
     name: BoringSSL and both backends
     runs-on: ubuntu-latest
