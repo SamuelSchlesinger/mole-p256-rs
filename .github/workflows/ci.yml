@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+
+jobs:
+  rustcrypto:
+    name: RustCrypto tests, lint, and docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo check --no-default-features --features rustcrypto
+      - run: cargo doc --no-deps
+
+  msrv:
+    name: Minimum supported Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.87.0
+      - run: cargo check --lib
+
+  boringssl:
+    name: BoringSSL and both backends
+    runs-on: ubuntu-latest
+    env:
+      BORINGSSL_BUILD_DIR: ${{ github.workspace }}/boringssl/build
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: bindgen-cli
+      - run: scripts/build-boringssl.sh
+      - run: cargo test --no-default-features --features boringssl --config boringssl/cargo-config.toml
+      - run: cargo test --features rustcrypto,boringssl --config boringssl/cargo-config.toml
+      - run: cargo clippy --all-targets --features rustcrypto,boringssl --config boringssl/cargo-config.toml -- -D warnings
