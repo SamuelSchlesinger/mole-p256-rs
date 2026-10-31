@@ -96,7 +96,10 @@ impl<H: Sha256> XmdPrefix<H> {
     /// the encoded DST length or wrapping the one-byte block counter.
     pub fn expand_into(&self, suffix: &[&[u8]], dst: &[&[u8]], out: &mut [u8]) {
         let dst_len = dst.iter().map(|part| part.len()).sum::<usize>();
-        assert!(dst_len <= 255 && out.len() <= 255 * 32, "XMD length exceeds RFC 9380 limit");
+        assert!(
+            dst_len <= 255 && out.len() <= 255 * 32,
+            "XMD length exceeds RFC 9380 limit"
+        );
         let dst_prime_tail = [dst_len as u8];
         let absorb_dst = |hasher: &mut H| {
             for part in dst {
