@@ -44,7 +44,7 @@ fn hash_to_curve_vectors<B: Backend>() {
         ),
         (
             b"abc",
-            "0bb8b8748551aa43ed54f009230450b492fead5f1cc91658775dac4a3388a0f",
+            "0bb8b87485551aa43ed54f009230450b492fead5f1cc91658775dac4a3388a0f",
             "5c41b3d0731a27a7b14bc0bf0ccded2d8751f83493404c84a88e71ffd424212e",
         ),
         (
