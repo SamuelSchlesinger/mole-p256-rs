@@ -76,6 +76,12 @@ fn group_and_scalars<B: Backend>() {
     assert!(bool::from(
         B::Scalar::from_bytes(&[0xff; SCALAR_LENGTH]).is_none()
     ));
+    let mut largest = crate::backend::ORDER;
+    largest[SCALAR_LENGTH - 1] -= 1;
+    assert!(bool::from(B::Scalar::from_bytes(&largest).is_some()));
+    assert!(bool::from(
+        B::Scalar::from_bytes(&crate::backend::ORDER).is_none()
+    ));
     let x = B::Scalar::from(3);
     assert_eq!(
         (x * x.invert().unwrap()).to_bytes(),
@@ -115,6 +121,11 @@ fn domain_separation<B: Backend>() {
     assert!(!bool::from(
         B::derive_key_scalar(ACT, &seed, b"test").unwrap().is_zero()
     ));
+    let nonce_act = B::derive_nonces(ACT, b"secret", b"proof", &[b"instance"], &seed, 2).unwrap();
+    let nonce_ihat = B::derive_nonces(IHAT, b"secret", b"proof", &[b"instance"], &seed, 2).unwrap();
+    assert_ne!(nonce_act[0].to_bytes(), nonce_ihat[0].to_bytes());
+    let repeated = B::derive_nonces(ACT, b"secret", b"proof", &[b"instance"], &seed, 2).unwrap();
+    assert_eq!(nonce_act[1].to_bytes(), repeated[1].to_bytes());
 }
 
 #[cfg(feature = "rustcrypto")]
@@ -125,6 +136,18 @@ mod rustcrypto {
     #[test]
     fn xmd() {
         expand_message_xmd_vectors::<B>();
+    }
+    #[test]
+    #[should_panic(expected = "XMD length exceeds RFC 9380 limit")]
+    fn oversized_dst() {
+        let mut out = [0u8; 32];
+        XmdPrefix::<<B as Backend>::Sha256>::new(&[]).expand_into(&[], &[&[0u8; 256]], &mut out);
+    }
+    #[test]
+    #[should_panic(expected = "XMD length exceeds RFC 9380 limit")]
+    fn oversized_output() {
+        let mut out = [0u8; 8161];
+        XmdPrefix::<<B as Backend>::Sha256>::new(&[]).expand_into(&[], &[b"example"], &mut out);
     }
     #[test]
     fn hash_to_curve() {
