@@ -70,8 +70,12 @@ fn group_and_scalars<B: Backend>() {
         hex::encode(generator.to_bytes().unwrap()),
         "036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
     );
-    assert!(bool::from(B::Point::from_bytes(&[0; POINT_LENGTH]).is_none()));
-    assert!(bool::from(B::Scalar::from_bytes(&[0xff; SCALAR_LENGTH]).is_none()));
+    assert!(bool::from(
+        B::Point::from_bytes(&[0; POINT_LENGTH]).is_none()
+    ));
+    assert!(bool::from(
+        B::Scalar::from_bytes(&[0xff; SCALAR_LENGTH]).is_none()
+    ));
     let x = B::Scalar::from(3);
     assert_eq!(
         (x * x.invert().unwrap()).to_bytes(),
@@ -108,7 +112,9 @@ fn domain_separation<B: Backend>() {
         B::hash_to_scalar(ACT, &[b"example"]).to_bytes(),
         B::hash_to_scalar(IHAT, &[b"example"]).to_bytes()
     );
-    assert!(!bool::from(B::derive_key_scalar(ACT, &seed, b"test").unwrap().is_zero()));
+    assert!(!bool::from(
+        B::derive_key_scalar(ACT, &seed, b"test").unwrap().is_zero()
+    ));
 }
 
 #[cfg(feature = "rustcrypto")]

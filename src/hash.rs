@@ -23,7 +23,6 @@
 
 use alloc::vec::Vec;
 
-use subtle::CtOption;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::backend::{Backend, SCALAR_LENGTH, Scalar, Sha256};
@@ -301,8 +300,3 @@ pub trait BackendHashExt: Backend {
 }
 
 impl<B: Backend> BackendHashExt for B {}
-
-/// Checks that a `CtOption` holds a value, mapping absence to `error`.
-pub(crate) fn require<T, E>(value: CtOption<T>, error: E) -> Result<T, E> {
-    value.into_option().ok_or(error)
-}
