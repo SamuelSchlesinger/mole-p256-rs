@@ -1,4 +1,4 @@
-name: Apply and validate shared-backend review fixes
+name: Validate and commit shared-backend review fixes
 on:
   push:
     branches: [feat/extract-shared-p256-backend]
@@ -20,209 +20,43 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - name: Apply only the reviewed source changes
+      - name: Reapply the pinned, previously tested source patch
         run: |
           python3 - <<'PY'
-          from pathlib import Path
           import hashlib
           import subprocess
-          import urllib.request
-
-          subprocess.run(['git', 'diff', '--exit-code', '8911b765e5076cb102125b20784c310860254297', 'HEAD', '--', 'src/backend', 'src/hash.rs', 'src/tests.rs', '.github/workflows/ci.yml', 'README.md'], check=True)
-          def replace(text, old, new):
-              assert text.count(old) == 1, repr(old)
-              return text.replace(old, new)
-          def upstream(path, blob):
-              url = 'https://raw.githubusercontent.com/Moderation-of-unLinkable-Endorsements/ihat-rs/3b5fabd2b64c6b830307fe948e8da54dd1b435e5/' + path
-              data = urllib.request.urlopen(url, timeout=30).read()
-              assert hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() == blob, path
-              return data.decode()
-          def selection(source):
-              start = source.index("    fn ct_select<'a, I>")
-              end = source.index('    fn from_bytes(bytes: &[u8; POINT_LENGTH])', start)
-              return source[start:end]
-
-          path = Path('src/backend/mod.rs')
-          text = path.read_text()
-          text = replace(text, 'use zeroize::Zeroize;', 'use zeroize::{Zeroize, Zeroizing};')
-          text = replace(text,
-              '    /// multi-scalar multiplication. Must be constant time in the scalars.',
-              '    /// multi-scalar multiplication. Timing inherits the backend\'s `mul` and\n    /// `add` guarantees. In particular, the default is not unconditionally\n    /// constant time in the scalars on backends with exceptional-addition\n    /// branches; callers must account for those cases when scalars are secret.')
-          marker = '    /// Decodes a compressed SEC1 point, rejecting the identity and any'
-          method = '''    /// Selects the point at `index`, or `None` if it is out of range or
-              /// any entry is the identity.
-              ///
-              /// Every entry is visited. For a fixed public table of nonidentity
-              /// points and an in-range secret index, selection does not index
-              /// memory using the secret. The backend must also keep conversion of
-              /// the selected point constant time. Table validity and whether the
-              /// index is in range may affect timing.
-              fn ct_select<'a, I>(table: I, index: usize) -> CtOption<Self>
-              where
-                  I: IntoIterator<Item = &'a Self>,
-                  Self: 'a;
-
-          '''
-          # Remove the extra indentation introduced by this Python literal.
-          method = method.replace('\n    ', '\n', 0) if False else method
-          import textwrap
-          method = '    ' + textwrap.dedent(method).lstrip()
-          # Use an explicit line-wise indentation so rustfmt can normalize it.
-          text = replace(text, marker, method + marker)
-          marker = '    fn random_bytes(buf: &mut [u8]);\n}'
-          text = replace(text, marker, '''    fn random_bytes(buf: &mut [u8]);
-
-              /// Generates a fresh seed using this backend's random source.
-              /// The returned storage is wiped when dropped.
-              fn generate_seed() -> Zeroizing<[u8; crate::SEED_LENGTH]> {
-                  let mut seed = Zeroizing::new([0u8; crate::SEED_LENGTH]);
-                  Self::random_bytes(seed.as_mut());
-                  seed
-              }
-          }''')
-          path.write_text(text)
-
-          sources = [
-              ('src/backend/rustcrypto.rs', '8bc5f4aaf381b5cc214d5103bcd9a0cc0aaa7940'),
-              ('src/backend/boringssl.rs', 'be38eee8bdb7a9886d027b0a2ba9411e31c6dbcc'),
-          ]
-          for filename, blob in sources:
-              source = upstream(filename, blob)
-              path = Path(filename)
-              text = path.read_text()
-              marker = '    fn from_bytes(bytes: &[u8; POINT_LENGTH]) -> CtOption<Self> {'
-              text = replace(text, marker, selection(source) + marker)
-              if filename.endswith('rustcrypto.rs'):
-                  text = replace(text, 'use subtle::{Choice, ConstantTimeEq, CtOption};', 'use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};')
-              else:
-                  text = replace(text,
-                      '//! never re-parsed from a compressed encoding; P-256 point arithmetic in\n//! BoringSSL is constant time. The x-coordinate test of the permutation',
-                      '//! never re-parsed during arithmetic. BoringSSL point addition has\n//! exceptional paths for equal or opposite operands; callers must account\n//! for them when operands depend on secrets. The x-coordinate test')
-              path.write_text(text)
-
-          path = Path('src/hash.rs')
-          text = path.read_text()
-          start = text.index('    /// `expand_message_xmd(prefix || suffix, dst, len(out))`.')
-          end = text.index('\n}\n\n/// A scalar from a 24-byte', start)
-          method = '''    /// `expand_message_xmd(prefix || suffix, dst, len(out))`.
-              ///
-              /// Tags longer than 255 bytes are shortened using RFC 9380 Section
-              /// 5.3.3. Message parts and tag parts are concatenated logically.
-              ///
-              /// # Panics
-              ///
-              /// Panics when `out` exceeds `255 * 32` bytes. Use
-              /// [`Self::try_expand_into`] to return an error instead. An oversized
-              /// tag or protocol context does not cause a panic.
-              pub fn expand_into(&self, suffix: &[&[u8]], dst: &[&[u8]], out: &mut [u8]) {
-                  assert!(
-                      self.try_expand_into(suffix, dst, out).is_ok(),
-                      "XMD length exceeds RFC 9380 limit"
-                  );
-              }
-
-              /// The checked XMD expander. Returns [`Error::InvalidInput`] without
-              /// modifying `out` if its length exceeds `255 * 32` bytes.
-              /// Arbitrarily long domain separation tags use RFC 9380 Section 5.3.3.
-              pub fn try_expand_into(
-                  &self,
-                  suffix: &[&[u8]],
-                  dst: &[&[u8]],
-                  out: &mut [u8],
-              ) -> Result<(), Error> {
-                  if out.len() > 255 * 32 {
-                      return Err(Error::InvalidInput);
-                  }
-                  // Only the comparison to 255 matters for oversized tags. A
-                  // saturating sum avoids overflow even for repeated slice views.
-                  let dst_len = dst.iter().fold(0usize, |len, part| len.saturating_add(part.len()));
-                  let mut short_dst = Zeroizing::new([0u8; 32]);
-                  if dst_len > 255 {
-                      let mut hasher = H::new();
-                      hasher.update(b"H2C-OVERSIZE-DST-");
-                      for part in dst {
-                          hasher.update(part);
-                      }
-                      *short_dst = hasher.finalize();
-                  }
-                  let dst_prime_tail = [if dst_len > 255 { 32 } else { dst_len as u8 }];
-                  let absorb_dst = |hasher: &mut H| {
-                      if dst_len > 255 {
-                          hasher.update(&short_dst[..]);
-                      } else {
-                          for part in dst {
-                              hasher.update(part);
-                          }
-                      }
-                      hasher.update(&dst_prime_tail);
-                  };
-                  let mut hasher = self.hasher.clone();
-                  for part in suffix {
-                      hasher.update(part);
-                  }
-                  hasher.update(&(out.len() as u16).to_be_bytes());
-                  hasher.update(&[0]);
-                  absorb_dst(&mut hasher);
-                  let mut b0 = hasher.finalize();
-                  let mut previous = [0u8; 32];
-                  for (i, chunk) in out.chunks_mut(32).enumerate() {
-                      let mut block = b0;
-                      for (byte, prev) in block.iter_mut().zip(previous) {
-                          *byte ^= prev;
-                      }
-                      let mut hasher = H::new();
-                      hasher.update(&block);
-                      block.zeroize();
-                      hasher.update(&[i as u8 + 1]);
-                      absorb_dst(&mut hasher);
-                      previous = hasher.finalize();
-                      chunk.copy_from_slice(&previous[..chunk.len()]);
-                  }
-                  b0.zeroize();
-                  previous.zeroize();
-                  Ok(())
-              }'''
-          text = text[:start] + method + text[end:]
-          text = replace(text,
-              '        let instance_len = instance.iter().map(|part| part.len()).sum::<usize>();',
-              '        let instance_len = instance.iter().try_fold(0usize, |len, part| {\n            len.checked_add(part.len()).ok_or(Error::InvalidInput)\n        })?;')
-          text = replace(text,
-              'pad_to_block(secret_len.len() + secret.len())',
-              'pad_to_block(secret_len.len() + secret.len() % S_IN_BYTES)')
-          path.write_text(text)
-
-          path = Path('src/tests.rs')
-          text = path.read_text()
-          start = text.index('    #[test]\n    #[should_panic(expected = "XMD length exceeds RFC 9380 limit")]\n    fn oversized_dst()')
-          end = text.index('    #[test]', start + len('    #[test]'))
-          text = text[:start] + text[end:]
-          text += '\nmod review;\n'
-          path.write_text(text)
-
-          path = Path('.github/workflows/ci.yml')
-          text = path.read_text()
-          text = replace(text, '      - run: cargo test\n', '      - run: python3 scripts/generate-derivation-vectors.py --check\n      - run: cargo test\n      - run: cargo test --release\n')
-          text = replace(text,
-              '      - run: cargo test --features rustcrypto,boringssl --config boringssl/cargo-config.toml\n',
-              '      - run: cargo test --features rustcrypto,boringssl --config boringssl/cargo-config.toml\n      - run: cargo test --release --features rustcrypto,boringssl --config boringssl/cargo-config.toml\n')
-          path.write_text(text)
+          revision = 'e84f7db7c09f99248a973b2891329e1ce079b01a'
+          path = '.github/workflows/review-fix-once.yml'
+          raw = subprocess.check_output(['git', 'show', revision + ':' + path])
+          assert hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == '295e69c08c404c99b6cd5fbfe8469c727ce16015'
+          workflow = raw.decode()
+          start = '      - name: Apply only the reviewed source changes\n        run: |\n'
+          end = '      - name: Validate RustCrypto in debug and release modes\n'
+          assert workflow.count(start) == workflow.count(end) == 1
+          block = workflow.split(start, 1)[1].split(end, 1)[0]
+          lines = block.splitlines()
+          assert all(not line.strip() or line.startswith('          ') for line in lines)
+          script = '\n'.join(line[10:] if line.strip() else '' for line in lines) + '\n'
+          subprocess.run(['bash', '-e', '-o', 'pipefail'], input=script, text=True, check=True)
           PY
-          python3 scripts/generate-derivation-vectors.py
-          cargo fmt
-          python3 scripts/generate-derivation-vectors.py --check
-          git diff --check
+          # Workflow changes are made separately through the repository connector.
+          # This job commits source and tests only.
+          git restore .github/workflows/ci.yml
       - name: Validate RustCrypto in debug and release modes
         run: |
+          cargo fmt --check
+          python3 scripts/generate-derivation-vectors.py --check
           cargo clippy --all-targets -- -D warnings
           cargo test
           cargo test --release
           cargo check --no-default-features --features rustcrypto
           cargo doc --no-deps
-      - name: Commit the validated fixes
+      - name: Commit the validated source files
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/backend src/hash.rs src/tests.rs src/tests .github/workflows/ci.yml
+          git add src/backend src/hash.rs src/tests.rs src/tests
+          git diff --cached --check
           git commit -m 'Restore backend APIs, handle oversized DSTs, and verify derivations independently' -m 'Assisted by ChatGPT.'
           git push origin HEAD:refs/heads/feat/extract-shared-p256-backend
           git show --stat --oneline HEAD
