@@ -1,0 +1,35 @@
+[package]
+name = "mole-p256"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.87"
+license = "Apache-2.0"
+description = "Shared P-256 primitives for MOLE protocols"
+repository = "https://github.com/Moderation-of-unLinkable-Endorsements/mole-p256-rs"
+readme = "README.md"
+keywords = ["cryptography", "p256", "anonymous-credentials", "privacy"]
+categories = ["cryptography", "no-std"]
+
+[lib]
+name = "mole_p256"
+
+[features]
+default = ["rustcrypto", "std"]
+rustcrypto = ["dep:p256", "dep:sha2", "dep:getrandom"]
+std = ["p256?/std", "p256?/precomputed-tables", "getrandom?/std"]
+wasm_js = ["getrandom?/wasm_js"]
+boringssl = ["dep:bssl-sys"]
+
+[dependencies]
+subtle = { version = "2.6", default-features = false }
+zeroize = { version = "1.7", default-features = false, features = ["alloc"] }
+p256 = { version = "0.14", default-features = false, features = ["arithmetic", "hash2curve", "alloc"], optional = true }
+sha2 = { version = "0.11", default-features = false, features = ["zeroize"], optional = true }
+getrandom = { version = "0.4", optional = true }
+bssl-sys = { version = "0.1.0", optional = true }
+
+[dev-dependencies]
+hex = "0.4"
+
+[package.metadata.docs.rs]
+features = ["rustcrypto"]
