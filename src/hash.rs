@@ -86,24 +86,55 @@ impl<H: Sha256> XmdPrefix<H> {
 
     /// `expand_message_xmd(prefix || suffix, dst, len(out))`.
     ///
-    /// The concatenated `dst` must be at most 255 bytes and `out` at most
-    /// `255 * 32` bytes, as required by RFC 9380.
+    /// Tags longer than 255 bytes are shortened using RFC 9380 Section
+    /// 5.3.3. Message parts and tag parts are concatenated logically.
     ///
     /// # Panics
     ///
-    /// Panics if either length exceeds its RFC 9380 limit. This rejects
-    /// unsupported inputs even in release builds rather than truncating
-    /// the encoded DST length or wrapping the one-byte block counter.
+    /// Panics when `out` exceeds `255 * 32` bytes. Use
+    /// [`Self::try_expand_into`] to return an error instead. An oversized
+    /// tag or protocol context does not cause a panic.
     pub fn expand_into(&self, suffix: &[&[u8]], dst: &[&[u8]], out: &mut [u8]) {
-        let dst_len = dst.iter().map(|part| part.len()).sum::<usize>();
         assert!(
-            dst_len <= 255 && out.len() <= 255 * 32,
+            self.try_expand_into(suffix, dst, out).is_ok(),
             "XMD length exceeds RFC 9380 limit"
         );
-        let dst_prime_tail = [dst_len as u8];
-        let absorb_dst = |hasher: &mut H| {
+    }
+
+    /// The checked XMD expander. Returns [`Error::InvalidInput`] without
+    /// modifying `out` if its length exceeds `255 * 32` bytes.
+    /// Arbitrarily long domain separation tags use RFC 9380 Section 5.3.3.
+    pub fn try_expand_into(
+        &self,
+        suffix: &[&[u8]],
+        dst: &[&[u8]],
+        out: &mut [u8],
+    ) -> Result<(), Error> {
+        if out.len() > 255 * 32 {
+            return Err(Error::InvalidInput);
+        }
+        // Only the comparison to 255 matters for oversized tags. A
+        // saturating sum avoids overflow even for repeated slice views.
+        let dst_len = dst
+            .iter()
+            .fold(0usize, |len, part| len.saturating_add(part.len()));
+        let mut short_dst = Zeroizing::new([0u8; 32]);
+        if dst_len > 255 {
+            let mut hasher = H::new();
+            hasher.update(b"H2C-OVERSIZE-DST-");
             for part in dst {
                 hasher.update(part);
+            }
+            *short_dst = hasher.finalize();
+        }
+        let dst_prime_tail = [if dst_len > 255 { 32 } else { dst_len as u8 }];
+        let absorb_dst = |hasher: &mut H| {
+            if dst_len > 255 {
+                hasher.update(&short_dst[..]);
+            } else {
+                for part in dst {
+                    hasher.update(part);
+                }
             }
             hasher.update(&dst_prime_tail);
         };
@@ -115,11 +146,8 @@ impl<H: Sha256> XmdPrefix<H> {
         hasher.update(&[0]);
         absorb_dst(&mut hasher);
         let mut b0 = hasher.finalize();
-
         let mut previous = [0u8; 32];
         for (i, chunk) in out.chunks_mut(32).enumerate() {
-            // b_i = H(strxor(b_0, b_{i-1}) || I2OSP(i, 1) || DST_prime); for
-            // i = 1 the previous block is zero, so the xor leaves b_0.
             let mut block = b0;
             for (byte, prev) in block.iter_mut().zip(previous) {
                 *byte ^= prev;
@@ -134,6 +162,7 @@ impl<H: Sha256> XmdPrefix<H> {
         }
         b0.zeroize();
         previous.zeroize();
+        Ok(())
     }
 }
 
@@ -228,7 +257,9 @@ pub trait BackendHashExt: Backend {
         }
         let label_len = u16::try_from(label.len()).map_err(|_| Error::InvalidInput)?;
         let secret_len = u32::try_from(secret.len()).map_err(|_| Error::InvalidInput)?;
-        let instance_len = instance.iter().map(|part| part.len()).sum::<usize>();
+        let instance_len = instance.iter().try_fold(0usize, |len, part| {
+            len.checked_add(part.len()).ok_or(Error::InvalidInput)
+        })?;
         let instance_len = u32::try_from(instance_len).map_err(|_| Error::InvalidInput)?;
         let (label_len, secret_len, instance_len) = (
             label_len.to_be_bytes(),
@@ -237,7 +268,7 @@ pub trait BackendHashExt: Backend {
         );
         let zeros = [0u8; S_IN_BYTES];
         let rand_pad = &zeros[..pad_to_block(NSEED)];
-        let secret_pad = &zeros[..pad_to_block(secret_len.len() + secret.len())];
+        let secret_pad = &zeros[..pad_to_block(secret_len.len() + secret.len() % S_IN_BYTES)];
         let mut parts: Vec<&[u8]> = alloc::vec![
             rand,
             rand_pad,

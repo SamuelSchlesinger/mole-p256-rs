@@ -139,12 +139,6 @@ mod rustcrypto {
     }
     #[test]
     #[should_panic(expected = "XMD length exceeds RFC 9380 limit")]
-    fn oversized_dst() {
-        let mut out = [0u8; 32];
-        XmdPrefix::<<B as Backend>::Sha256>::new(&[]).expand_into(&[], &[&[0u8; 256]], &mut out);
-    }
-    #[test]
-    #[should_panic(expected = "XMD length exceeds RFC 9380 limit")]
     fn oversized_output() {
         let mut out = [0u8; 8161];
         XmdPrefix::<<B as Backend>::Sha256>::new(&[]).expand_into(&[], &[b"example"], &mut out);
@@ -185,3 +179,5 @@ mod boringssl {
         super::domain_separation::<B>();
     }
 }
+
+mod review;

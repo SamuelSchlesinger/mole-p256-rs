@@ -36,7 +36,7 @@ use core::fmt::Debug;
 use core::ops::{Add, Mul, Neg, Sub};
 
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 #[cfg(feature = "rustcrypto")]
 pub mod rustcrypto;
@@ -148,12 +148,28 @@ pub trait Point: Clone + Debug + PartialEq + Eq + Sized {
     /// `sum_i scalar_i * point_i`.
     ///
     /// The default computes each product separately; a backend may use a
-    /// multi-scalar multiplication. Must be constant time in the scalars.
+    /// multi-scalar multiplication. Timing inherits the backend's `mul` and
+    /// `add` guarantees. In particular, the default is not unconditionally
+    /// constant time in the scalars on backends with exceptional-addition
+    /// branches; callers must account for those cases when scalars are secret.
     fn lincomb<const N: usize>(terms: [(&Self, &Self::Scalar); N]) -> Self {
         terms.iter().fold(Self::identity(), |acc, (point, scalar)| {
             acc.add(&point.mul(scalar))
         })
     }
+
+    /// Selects the point at `index`, or `None` if it is out of range or
+    /// any entry is the identity.
+    ///
+    /// Every entry is visited. For a fixed public table of nonidentity
+    /// points and an in-range secret index, selection does not index
+    /// memory using the secret. The backend must also keep conversion of
+    /// the selected point constant time. Table validity and whether the
+    /// index is in range may affect timing.
+    fn ct_select<'a, I>(table: I, index: usize) -> CtOption<Self>
+    where
+        I: IntoIterator<Item = &'a Self>,
+        Self: 'a;
 
     /// Decodes a compressed SEC1 point, rejecting the identity and any
     /// non-canonical or off-curve encoding.
@@ -212,4 +228,12 @@ pub trait Backend: 'static + Copy + Debug + Default + PartialEq + Eq + Send + Sy
     /// Fills `buf` from the operating system's cryptographic random number
     /// generator, aborting the process if it is unavailable.
     fn random_bytes(buf: &mut [u8]);
+
+    /// Generates a fresh seed using this backend's random source.
+    /// The returned storage is wiped when dropped.
+    fn generate_seed() -> Zeroizing<[u8; crate::SEED_LENGTH]> {
+        let mut seed = Zeroizing::new([0u8; crate::SEED_LENGTH]);
+        Self::random_bytes(seed.as_mut());
+        seed
+    }
 }

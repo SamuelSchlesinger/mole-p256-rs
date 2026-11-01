@@ -19,8 +19,9 @@
 //! `BN_mod_sub_quick`, Montgomery multiplication, and
 //! `BN_mod_exp_mont_consttime` for inversion. Points are heap `EC_POINT`
 //! handles in projective form, so that values derived from secrets are
-//! never re-parsed from a compressed encoding; P-256 point arithmetic in
-//! BoringSSL is constant time. The x-coordinate test of the permutation
+//! never re-parsed during arithmetic. BoringSSL point addition has
+//! exceptional paths for equal or opposite operands; callers must account
+//! for them when operands depend on secrets. The x-coordinate test
 //! uses the same constant-time bignum routines modulo the field prime.
 //! Hash-to-curve, SHA-256, and randomness are BoringSSL's as well.
 //!
@@ -636,6 +637,53 @@ impl super::Point for Point {
         };
         assert_eq!(ret, 1);
         r
+    }
+
+    fn ct_select<'a, I>(table: I, index: usize) -> CtOption<Self>
+    where
+        I: IntoIterator<Item = &'a Self>,
+    {
+        // `EC_POINT` is opaque, so the selection runs over the bytes of the
+        // compressed encodings. Encoding the keys and decoding the selected key
+        // must be implemented in constant time.
+        let mut selected = [0u8; POINT_LENGTH];
+        let mut found = Choice::from(0);
+        let mut no_identity = Choice::from(1);
+        for (i, point) in table.into_iter().enumerate() {
+            let at = i.ct_eq(&index);
+            match super::Point::to_bytes(point) {
+                Some(encoding) => {
+                    for (out, byte) in selected.iter_mut().zip(&encoding) {
+                        out.conditional_assign(byte, at);
+                    }
+                }
+                None => no_identity = Choice::from(0),
+            }
+            found |= at;
+        }
+        let valid = found & no_identity;
+        let mut point = Self::new();
+        if bool::from(valid) {
+            // SAFETY: all pointers are valid; `selected` has `POINT_LENGTH`
+            // bytes.
+            let ret = unsafe {
+                bssl_sys::EC_POINT_oct2point(
+                    group(),
+                    point.as_mut_ptr(),
+                    selected.as_ptr(),
+                    selected.len(),
+                    null_mut(),
+                )
+            };
+            assert_eq!(ret, 1);
+        } else {
+            // A placeholder for the `None` result.
+            // SAFETY: `group()` and `point` are valid.
+            let ret = unsafe { bssl_sys::EC_POINT_set_to_infinity(group(), point.as_mut_ptr()) };
+            assert_eq!(ret, 1);
+        }
+        selected.zeroize();
+        CtOption::new(point, valid)
     }
 
     fn from_bytes(bytes: &[u8; POINT_LENGTH]) -> CtOption<Self> {

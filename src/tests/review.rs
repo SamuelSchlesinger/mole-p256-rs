@@ -30,11 +30,18 @@ fn reference_derivations<B: Backend>() {
             assert_eq!(hex::encode(actual.to_bytes()), expected);
         }
         assert_eq!(
-            hex::encode(B::derive_key_scalar(vector.context, &seed, b"GenerateKeyPair").unwrap().to_bytes()),
+            hex::encode(
+                B::derive_key_scalar(vector.context, &seed, b"GenerateKeyPair")
+                    .unwrap()
+                    .to_bytes()
+            ),
             vector.key
         );
     }
-    assert_eq!(hex::encode(B::reduce_be_48(&[0xff; 48]).to_bytes()), REDUCE_MAX_VECTOR);
+    assert_eq!(
+        hex::encode(B::reduce_be_48(&[0xff; 48]).to_bytes()),
+        REDUCE_MAX_VECTOR
+    );
     assert!(bool::from(B::reduce_be_48(&[0; 48]).is_zero()));
 }
 
@@ -61,9 +68,11 @@ fn xmd_multiblock_and_long_dst<B: Backend>() {
     assert_eq!(hex::encode(long_output), OVERSIZE_DST_VECTOR);
 
     let mut maximum = [0u8; 8160];
-    assert!(XmdPrefix::<B::Sha256>::new(&[])
-        .try_expand_into(&[], &[DST], &mut maximum)
-        .is_ok());
+    assert!(
+        XmdPrefix::<B::Sha256>::new(&[])
+            .try_expand_into(&[], &[DST], &mut maximum)
+            .is_ok()
+    );
     let mut too_long = [0x55u8; 8161];
     assert_eq!(
         XmdPrefix::<B::Sha256>::new(&[]).try_expand_into(&[], &[DST], &mut too_long),
@@ -89,16 +98,19 @@ fn point_selection<B: Backend>() {
     let table = [generator.clone(), generator.double(), generator.neg()];
     for (index, expected) in table.iter().enumerate() {
         let mut visited = 0;
-        let selected = B::Point::ct_select(
-            table.iter().inspect(|_| visited += 1),
-            index,
-        );
+        let selected = B::Point::ct_select(table.iter().inspect(|_| visited += 1), index);
         assert_eq!(visited, table.len());
         assert_eq!(selected.into_option().unwrap(), *expected);
     }
-    assert!(bool::from(B::Point::ct_select(table.iter(), table.len()).is_none()));
-    assert!(bool::from(B::Point::ct_select(table.iter(), usize::MAX).is_none()));
-    assert!(bool::from(B::Point::ct_select(core::iter::empty(), 0).is_none()));
+    assert!(bool::from(
+        B::Point::ct_select(table.iter(), table.len()).is_none()
+    ));
+    assert!(bool::from(
+        B::Point::ct_select(table.iter(), usize::MAX).is_none()
+    ));
+    assert!(bool::from(
+        B::Point::ct_select(core::iter::empty(), 0).is_none()
+    ));
     let invalid = [generator, B::Point::identity()];
     assert!(bool::from(B::Point::ct_select(invalid.iter(), 0).is_none()));
     assert!(bool::from(B::Point::ct_select(invalid.iter(), 1).is_none()));
@@ -131,21 +143,34 @@ macro_rules! review_tests {
         mod $module {
             type B = $backend;
             #[test]
-            fn reference_derivations() { super::reference_derivations::<B>(); }
+            fn reference_derivations() {
+                super::reference_derivations::<B>();
+            }
             #[test]
-            fn xmd_multiblock_and_long_dst() { super::xmd_multiblock_and_long_dst::<B>(); }
+            fn xmd_multiblock_and_long_dst() {
+                super::xmd_multiblock_and_long_dst::<B>();
+            }
             #[test]
-            fn long_contexts_do_not_panic() { super::long_contexts_do_not_panic::<B>(); }
+            fn long_contexts_do_not_panic() {
+                super::long_contexts_do_not_panic::<B>();
+            }
             #[test]
-            fn point_selection() { super::point_selection::<B>(); }
+            fn point_selection() {
+                super::point_selection::<B>();
+            }
             #[test]
-            fn seed_generation_uses_backend() { super::seed_generation_uses_backend::<B>(); }
+            fn seed_generation_uses_backend() {
+                super::seed_generation_uses_backend::<B>();
+            }
             #[test]
             #[should_panic(expected = "XMD length exceeds RFC 9380 limit")]
             fn oversized_output_panics() {
                 let mut out = [0u8; 8161];
-                crate::hash::XmdPrefix::<<B as crate::Backend>::Sha256>::new(&[])
-                    .expand_into(&[], &[b"example"], &mut out);
+                crate::hash::XmdPrefix::<<B as crate::Backend>::Sha256>::new(&[]).expand_into(
+                    &[],
+                    &[b"example"],
+                    &mut out,
+                );
             }
         }
     };
